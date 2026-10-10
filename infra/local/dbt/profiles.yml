@@ -1,0 +1,15 @@
+# dbt runs in-process on the Spark workspace (method: session); config comes from
+# spark-defaults.conf. Targets: dev = real gld schema, ci = isolated ci_gld schema.
+usse:
+  target: dev
+  outputs:
+    dev:
+      type: spark
+      method: session
+      host: NA
+      schema: gld
+    ci:
+      type: spark
+      method: session
+      host: NA
+      schema: ci_gld

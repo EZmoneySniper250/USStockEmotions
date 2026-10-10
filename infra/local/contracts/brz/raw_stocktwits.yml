@@ -1,0 +1,41 @@
+# Plan §6. Bronze: append-only, no parsing beyond key extraction, duplicates allowed.
+table: brz.raw_stocktwits
+grain: one API record (one message as returned by one StockTwits API call)
+owner: jerry
+description: >
+  Raw StockTwits messages exactly as received. Never modified (P4). Silver is rebuilt from here.
+
+primary_key: []
+partition_by: [ingest_date]
+write_mode: append
+upstreams: [StockTwits public API]
+
+columns:
+  - name: payload
+    type: string
+    nullable: false
+    description: raw JSON of one message, unmodified
+  - name: source_post_id
+    type: string
+    nullable: false
+    description: StockTwits message id, extracted from payload
+  - name: ingest_ts
+    type: timestamp
+    nullable: false
+    description: UTC time this record was received (P2)
+  - name: batch_id
+    type: string
+    nullable: false
+    description: id of the ingestion run that fetched this record
+  - name: api_endpoint
+    type: string
+    nullable: false
+    description: endpoint called, e.g. streams/symbol/NVDA
+  - name: ingest_date
+    type: date
+    nullable: false
+    description: partition column, date of ingest_ts (UTC)
+
+dq_checks:
+  - not_null_source_post_id
+  - hourly_volume_drop

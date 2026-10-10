@@ -1,0 +1,86 @@
+# Local data platform: RustFS (S3) + Postgres (Spark/Hive metastore) + Spark workspace.
+# Usage:
+#   docker compose up -d --build
+#   docker compose exec spark python scripts/smoke_delta.py
+
+name: usse
+
+services:
+  # S3-compatible object storage (stand-in for AWS S3). RustFS replaces MinIO, whose public
+  # Docker images are no longer available. Pure object semantics, like S3 (see docs/dev_plan.md).
+  storage:
+    image: rustfs/rustfs:1.0.0
+    environment:
+      RUSTFS_ACCESS_KEY: ${S3_ACCESS_KEY}
+      RUSTFS_SECRET_KEY: ${S3_SECRET_KEY}
+      RUSTFS_VOLUMES: /data
+      RUSTFS_CONSOLE_ENABLE: "true"
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # web console
+    volumes:
+      - storage-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://127.0.0.1:9000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  # One-shot: create buckets. usse-lake = real tables, usse-ci = CI / test runs only.
+  storage-init:
+    image: usse-spark:local
+    depends_on:
+      storage:
+        condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY}
+      AWS_REGION: us-east-1
+    volumes:
+      - ./docker/storage/create_buckets.py:/opt/usse/create_buckets.py:ro
+    command: ["python", "/opt/usse/create_buckets.py"]
+
+  # Backing database for the Spark catalog (stand-in for AWS Glue Data Catalog).
+  metastore-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: metastore
+      POSTGRES_USER: hive
+      POSTGRES_PASSWORD: hive
+    volumes:
+      - metastore-data:/var/lib/postgresql/data
+      # Official Hive 2.3 metastore schema, applied on first start (empty volume only)
+      - ./docker/metastore:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hive -d metastore"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Workspace container: PySpark + Delta + dbt-spark. Jobs run here via `docker compose exec`.
+  spark:
+    build:
+      context: .
+      dockerfile: docker/spark/Dockerfile
+    image: usse-spark:local
+    depends_on:
+      storage-init:
+        condition: service_completed_successfully
+      metastore-db:
+        condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY}
+      AWS_REGION: us-east-1
+      USSE_LAKE_ROOT: ${USSE_LAKE_ROOT}
+      USSE_SCHEMA_PREFIX: ${USSE_SCHEMA_PREFIX}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    volumes:
+      - .:/workspace
+    ports:
+      - "4040:4040"   # Spark UI (while a job is running)
+    command: ["sleep", "infinity"]
+
+volumes:
+  storage-data:
+  metastore-data:

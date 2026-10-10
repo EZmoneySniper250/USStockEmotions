@@ -1,0 +1,19 @@
+name: usse
+version: "0.1.0"
+config-version: 2
+profile: usse
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+target-path: target
+clean-targets: [target, dbt_packages]
+
+models:
+  usse:
+    +file_format: delta
+    gld:
+      # Gold models land in <prefix>gld at <lake_root>/<prefix>gld (see profiles.yml targets)
+      +location_root: "{{ env_var('USSE_LAKE_ROOT', 's3a://usse-lake') }}/{{ target.schema }}"
+      +contract:
+        enforced: true

@@ -1,0 +1,31 @@
+# Contract template for Bronze / Silver tables. Copy to contracts/<layer>/<table>.yml.
+# Write and review this BEFORE any job code (Plan P1, Rule 1). Gold tables use dbt model YAML instead.
+
+table: slv.example            # <layer>.<table>; schema prefix (ci_) is applied at runtime, not here
+grain: one row per ...        # "one row = ..." (P1)
+owner: jerry
+description: >
+  What the table is and who uses it.
+
+primary_key: [example_id]     # MERGE key (P6); [] for append-only Bronze
+partition_by: []              # e.g. [ingest_date] for Bronze
+write_mode: merge             # merge (slv/gld) | append (brz)
+upstreams: [brz.raw_example]
+
+columns:
+  - name: example_id
+    type: string              # Spark SQL type: string, int, bigint, double, boolean, timestamp, date, decimal(p,s)
+    nullable: false
+    description: natural key
+  - name: created_ts
+    type: timestamp
+    nullable: false
+    description: UTC event time at source (P2)
+  - name: ingest_ts
+    type: timestamp
+    nullable: false
+    description: UTC time first received (P2)
+
+dq_checks:                    # implemented in src/usse/dq/, results -> _dq_results
+  - pk_unique
+  - created_le_ingest

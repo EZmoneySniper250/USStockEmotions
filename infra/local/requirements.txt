@@ -1,0 +1,13 @@
+# Pinned runtime + dev deps. Used by the Docker image and CI.
+pyspark==3.5.3
+delta-spark==3.2.1
+dbt-core~=1.9.0
+dbt-spark[session]~=1.9.0
+requests>=2.32
+boto3>=1.35
+anthropic>=0.40
+
+# dev
+pytest>=8.3
+ruff>=0.8
+sqlfluff>=3.2

@@ -1,0 +1,47 @@
+name: ci
+
+on:
+  pull_request:
+    paths: ["infra/local/**", ".github/workflows/ci.yml"]
+  push:
+    branches: [main]
+    paths: ["infra/local/**", ".github/workflows/ci.yml"]
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/local
+    env:
+      # Rule 11: CI never touches real tables
+      USSE_LAKE_ROOT: s3a://usse-ci
+      USSE_SCHEMA_PREFIX: ci_
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: infra/local/requirements.txt
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - run: pip install -r requirements.txt
+      - name: Fetch Delta jars into pyspark
+        run: |
+          JARS=$(python -c 'import os, pyspark; print(os.path.join(os.path.dirname(pyspark.__file__), "jars"))')
+          curl -fsSL -o "$JARS/delta-spark_2.12-3.2.1.jar" https://repo1.maven.org/maven2/io/delta/delta-spark_2.12/3.2.1/delta-spark_2.12-3.2.1.jar
+          curl -fsSL -o "$JARS/delta-storage-3.2.1.jar" https://repo1.maven.org/maven2/io/delta/delta-storage/3.2.1/delta-storage-3.2.1.jar
+      - name: Lint
+        run: ruff check src tests scripts docker
+      - name: Unit tests
+        run: pytest -q
+      - name: dbt parse
+        working-directory: infra/local/dbt
+        env:
+          DBT_PROFILES_DIR: .
+        run: dbt parse --target ci
+      # Added once sample Silver data + Gold models exist (dev plan M3):
+      # dbt build --target ci against a local Spark with seeded sample data

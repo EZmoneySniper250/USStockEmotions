@@ -1,0 +1,8 @@
+version: 2
+
+# Silver tables are produced by PySpark jobs; dbt reads them as sources.
+# Sources are declared here as each Silver table lands (Plan §10 step 4+).
+sources:
+  - name: slv
+    schema: "{{ 'ci_slv' if target.name == 'ci' else 'slv' }}"
+    tables: []

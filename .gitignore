@@ -1,0 +1,41 @@
+# Secrets / local env (keep .env.example tracked)
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# Spark / Hive local artifacts
+spark-warehouse/
+metastore_db/
+derby.log
+
+# dbt
+**/dbt/target/
+**/dbt/logs/
+**/dbt/dbt_packages/
+**/dbt/.user.yml
+
+# Terraform (infra/aws later)
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+
+# Logs / OS / IDE
+logs/
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
