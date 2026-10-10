@@ -247,4 +247,4 @@ docker compose down                        # stop (volumes persist)
 docker compose down -v                     # stop + wipe all local data
 ```
 
-UIs: RustFS console http://localhost:9001 (login = `S3_ACCESS_KEY` / `S3_SECRET_KEY` from `.env`) · Spark UI http://localhost:4040 (while a job runs).
+UIs: JupyterLab http://localhost:8888 (token = `JUPYTER_TOKEN`) · RustFS console http://localhost:9001 (login = `S3_ACCESS_KEY` / `S3_SECRET_KEY` from `.env`) · Spark UI http://localhost:4040 (while a job runs).

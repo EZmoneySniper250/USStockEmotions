@@ -11,6 +11,8 @@ ENV JAVA_HOME=/opt/java
 
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
+# Notebook tooling: local image only, not needed in CI
+RUN pip install --no-cache-dir "jupyterlab~=4.5.0" "ipykernel>=6.29"
 
 # Bake extra jars into pyspark so nothing is downloaded at runtime.
 # hadoop-aws must match the Hadoop version bundled with Spark 3.5 (3.3.4).

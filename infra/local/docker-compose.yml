@@ -2,6 +2,7 @@
 # Usage:
 #   docker compose up -d --build
 #   docker compose exec spark python scripts/smoke_delta.py
+#   JupyterLab: http://localhost:8888  (token = JUPYTER_TOKEN in .env)
 
 name: usse
 
@@ -57,7 +58,7 @@ services:
       timeout: 3s
       retries: 20
 
-  # Workspace container: PySpark + Delta + dbt-spark. Jobs run here via `docker compose exec`.
+  # Workspace container: PySpark + Delta + dbt-spark + JupyterLab. Jobs run here via `docker compose exec`.
   spark:
     build:
       context: .
@@ -75,11 +76,16 @@ services:
       USSE_LAKE_ROOT: ${USSE_LAKE_ROOT}
       USSE_SCHEMA_PREFIX: ${USSE_SCHEMA_PREFIX}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      JUPYTER_TOKEN: ${JUPYTER_TOKEN}
     volumes:
       - .:/workspace
     ports:
-      - "4040:4040"   # Spark UI (while a job is running)
-    command: ["sleep", "infinity"]
+      - "127.0.0.1:8888:8888"   # JupyterLab (localhost only; token = JUPYTER_TOKEN)
+      - "4040:4040"             # Spark UI of the first session (usually the notebook)
+      - "4041:4041"             # Spark UI of a second session (e.g. a job run via exec)
+    # JupyterLab is the main process; jobs still run via `docker compose exec spark ...`
+    command: ["jupyter", "lab", "--ip=0.0.0.0", "--port=8888", "--no-browser",
+              "--allow-root", "--ServerApp.root_dir=/workspace"]
 
 volumes:
   storage-data:
