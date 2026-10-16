@@ -1,0 +1,101 @@
+# X blacklist. Format and rules: docs/grokbot_x_spec.md §3.2–§3.3.
+# Bump `version` on every change. Never delete entries; set removed_on instead.
+# user_id is the stable key: grokbot looks up missing ids (get_users_by_usernames)
+# before the first run that uses this version.
+version: v1
+updated_on: 2026-10-15
+owner: jerry
+
+accounts:
+  - username: grok
+    user_id: null
+    added_on: 2026-10-14
+    removed_on: null
+    reason_code: bot
+    reason: "xAI assistant account; replies on request, not retail sentiment"
+    in_query: true
+
+  - username: stockRichard11
+    user_id: null
+    added_on: 2026-10-15
+    removed_on: null
+    reason_code: scam
+    reason: "stock<Name><digits> ring; stock-group invites; 12 posts in one 2h crowd run (trial 2026-10-15)"
+    in_query: true
+
+  - username: stockSophia1
+    user_id: null
+    added_on: 2026-10-15
+    removed_on: null
+    reason_code: scam
+    reason: "stock<Name><digits> ring (trial 2026-10-15)"
+    in_query: true
+
+  - username: stockCharlotte7
+    user_id: null
+    added_on: 2026-10-15
+    removed_on: null
+    reason_code: scam
+    reason: "stock<Name><digits> ring (trial 2026-10-15)"
+    in_query: true
+
+  - username: Christophep_a
+    user_id: null
+    added_on: 2026-10-15
+    removed_on: null
+    reason_code: scam
+    reason: "suggested by jaylen in trial 2026-10-15; behaviour to confirm before next version"
+    in_query: true
+
+  - username: Jeremy_219
+    user_id: null
+    added_on: 2026-10-15
+    removed_on: null
+    reason_code: scam
+    reason: "WhatsApp stock-picking group (trial 2026-10-15)"
+    in_query: true
+
+  - username: CoachDJLW
+    user_id: null
+    added_on: 2026-10-15
+    removed_on: null
+    reason_code: promo
+    reason: "follow-list traffic redirection (trial 2026-10-15)"
+    in_query: true
+
+  - username: stockbull_app
+    user_id: null
+    added_on: 2026-10-15
+    removed_on: null
+    reason_code: bot
+    reason: "automated trading-signal account (trial 2026-10-15)"
+    in_query: true
+
+# Negated in crowd queries as -"<phrase>". Phrases only: single words that appear
+# in real news (e.g. "WhatsApp" for $META) are not allowed. Test each new phrase
+# with one control page before adding it (spec §3.3).
+keywords:
+  - phrase: "airdrop"
+    added_on: 2026-10-14
+    removed_on: null
+  - phrase: "giveaway"
+    added_on: 2026-10-14
+    removed_on: null
+  - phrase: "join my telegram"
+    added_on: 2026-10-14
+    removed_on: null
+  - phrase: "discord.gg"
+    added_on: 2026-10-14
+    removed_on: null
+  - phrase: "check DM"
+    added_on: 2026-10-15
+    removed_on: null
+  - phrase: "Contact me"
+    added_on: 2026-10-15
+    removed_on: null
+  - phrase: "WhatsApp group"
+    added_on: 2026-10-15
+    removed_on: null
+  - phrase: "join my WhatsApp"
+    added_on: 2026-10-15
+    removed_on: null

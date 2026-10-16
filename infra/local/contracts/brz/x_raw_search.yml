@@ -1,0 +1,81 @@
+# Plan §6. Bronze: append-only, one row per API response, payload stored as received.
+table: brz.x_raw_search
+grain: one API response (one page of one X API v2 search, up to 25 posts)
+owner: jerry
+description: >
+  Raw X search responses collected by grokbot, in X API v2 shape: data[] (posts),
+  includes.users[] (authors, deduplicated, joined by author_id) and meta (paging).
+  Never modified (P4); posts are exploded and joined to authors in Silver.
+  Fields absent from a post are simply missing (e.g. referenced_tweets only appears on
+  quotes/replies). grokbot does not currently record request parameters, so the request_*
+  columns may be null.
+  Envelope format (request, fetch time, wrapper) is defined in docs/grokbot_x_spec.md v1.3.
+  The response is grokbot's wrapped X response (response_format grokbot_x_v2_wrapped_v1);
+  any non-JSON quota text arrives separately in response_trailer and is not part of payload.
+  Whole pages can lack lang, conversation_id and entities (2026-10-15 trial), so Silver
+  treats them as nullable and falls back to regex for cashtags.
+  Coverage: when a pagination chain hits the page cap (manifest exhausted = false), post
+  counts are a sample, not volume. Silver must compute each chain's covered window and
+  report volume as posts per covered minute.
+
+primary_key: []
+partition_by: [ingest_date]
+write_mode: append
+upstreams: [grokbot (X API v2 search)]
+
+columns:
+  - name: payload
+    type: string
+    nullable: false
+    description: raw JSON response body (data, includes, meta), unmodified
+  - name: collector
+    type: string
+    nullable: false
+    description: process that called the X API, e.g. grokbot
+  - name: api_endpoint
+    type: string
+    nullable: true
+    description: X endpoint called (e.g. tweets/search/recent); null if the collector does not record it
+  - name: request_query
+    type: string
+    nullable: true
+    description: X search query string; null if the collector does not record it
+  - name: request_params
+    type: string
+    nullable: true
+    description: JSON of other params (start_time, end_time, sort_order, pagination_token); null if not recorded
+  - name: result_count
+    type: int
+    nullable: false
+    description: payload meta.result_count
+  - name: newest_id
+    type: string
+    nullable: true
+    description: payload meta.newest_id
+  - name: oldest_id
+    type: string
+    nullable: true
+    description: payload meta.oldest_id
+  - name: next_token
+    type: string
+    nullable: true
+    description: payload meta.next_token, used to request the next page
+  - name: ingest_ts
+    type: timestamp
+    nullable: false
+    description: >
+      UTC time the response reached our system (P2). grokbot does not record the API call
+      time, so this is when we received the file; it is later than the true fetch time,
+      which is the safe direction for point-in-time use (P3)
+  - name: batch_id
+    type: string
+    nullable: false
+    description: id of the load run that wrote this response
+  - name: ingest_date
+    type: date
+    nullable: false
+    description: partition column, date of ingest_ts (UTC)
+
+dq_checks:
+  - result_count_matches_payload
+  - hourly_volume_drop

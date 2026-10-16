@@ -1,6 +1,6 @@
 # US-Stock Retail Sentiment Platform — Data Plan
 
-Version: v1.1 (2026-10-10). v1.1 syncs the doc with the local stack as built: RustFS replaces MinIO, the metastore is set up, the repo layout is fixed, and ingestion moves up in the development order
+Version: v1.2 (2026-10-12). v1.2 adds X (raw posts via grokbot) and Xiaohongshu as Phase 1 sources, renames Bronze tables to `<source>_<purpose>`, and makes the Bronze grain one API response. v1.1 (2026-10-10) synced the doc with the local stack as built: RustFS replaces MinIO, the metastore is set up, the repo layout is fixed, and ingestion moves up in the development order
 Owner: Jerry (data infrastructure)
 Audience: team members (Linan, Jaylen) and their coding agents
 
@@ -30,7 +30,7 @@ Core principle: **rules decide, the agent explains.** Alerts are triggered by ex
 
 | Phase | Scope | Status |
 |---|---|---|
-| **Phase 1 (current)** | StockTwits + Reddit posts → labels → 4h metrics at market / sector / ticker grain → score → alerts + agent explanation; hourly prices for evaluation | In progress |
+| **Phase 1 (current)** | StockTwits + Reddit + X + Xiaohongshu posts → labels → 4h metrics at market / sector / ticker grain → score → alerts + agent explanation; hourly prices for evaluation | In progress |
 | Phase 2 | Historical tick replay (introduces Kafka), panic index (VIX, term structure), policy uncertainty (EPU), Trump post event study | Planned |
 | Phase 3 | Paper trading (Alpaca), PnL evaluation | Planned |
 
@@ -112,8 +112,11 @@ Layer schemas are created only by `python -m usse.bootstrap` at `<lake_root>/<sc
 flowchart LR
     API1[StockTwits API] --> ING[Python ingestion]
     API2[Reddit API] --> ING
+    API4[XHS_ALL_IN_ONE local API] --> ING
     API3[Price source] --> ING
+    API5[X API v2 via grokbot] --> LOAD[File load]
     ING --> BRZ[(brz)]
+    LOAD --> BRZ
     BRZ --> SPK[PySpark jobs]
     SPK --> SLV[(slv)]
     SLV --> LBL[LLM labeling job]
@@ -176,11 +179,15 @@ infra/local/                                                                    
 
 Do not repeat the layer in table names (use `gld.fct_post_sentiment`, not `gld.gld_fct_post_sentiment`).
 
-### 4.2 Table prefixes
+### 4.2 Table names
+
+Bronze tables are named `<layer>.<source>_<purpose>`, so tables group by source: `brz.stocktwits_raw`, `brz.xhs_raw_search`, `brz.xhs_raw_note`, `brz.x_raw_search`. `<source>` is a short fixed code (`stocktwits`, `reddit`, `xhs`, `x`, `prices`); `<purpose>` starts with `raw` and adds the endpoint kind when a source has more than one (`raw_search`, `raw_note`).
+
+Silver and Gold tables are cross-source and use the prefixes below:
 
 | Prefix | Meaning | Layer |
 |---|---|---|
-| `raw_` | Raw source data | brz |
+| `<source>_raw*` | Raw source data (see above) | brz |
 | (none) | Cleaned entity tables, e.g. `posts` | slv |
 | `dim_` | Dimension | slv (reference) / gld |
 | `fct_` | Fact table (transaction or atomic) | gld |
@@ -206,24 +213,33 @@ Do not repeat the layer in table names (use `gld.fct_post_sentiment`, not `gld.g
 
 | Source | Use | Notes |
 |---|---|---|
-| StockTwits public API | Phase 1 posts | Free; **no history** (latest messages only), so start ingestion as early as possible. Includes user-set bullish/bearish tag |
+| StockTwits public API | Phase 1 posts | Free, no auth, but needs a browser User-Agent (Cloudflare). Paging with `max=` reaches back about 10 months (tested 2026-10-12), but backfilled rows carry today's mutable fields (likes), so live ingestion should still start as early as possible; backfill is **OPEN** (Q10). Includes user-set bullish/bearish tag |
 | Reddit API | Phase 1 posts (e.g. r/wallstreetbets, r/stocks) | Non-commercial free tier; confirm rate limits |
-| xAI API `x_search` (Grok) | **Agent tool only** for qualitative context | Returns Grok's synthesized answer + citation URLs, not raw posts; incomplete and non-reproducible. **Never** used to build backtestable metrics |
-| Rednote (Xiaohongshu) | Not used | No API; scraping violates ToS and raises privacy-law risk |
+| X (via grokbot) | Phase 1 posts | grokbot calls X API v2 search and hands over the raw response (`data`, `includes.users`, `meta`). Request parameters are currently not recorded. Each page holds at most 25 posts, so coverage of busy tickers is a sample |
+| Xiaohongshu / Rednote (via local `XHS_ALL_IN_ONE` backend) | Phase 1 posts, Chinese-language retail view | **Learning / research use only, non-commercial.** Depends on a personal account cookie (expires; account-ban risk). Keyword search, then one detail call per note for body text and timestamp. Use in metrics is **OPEN** (Q11) |
 | Hourly prices for tickers + market ETFs (SPY, QQQ) + sector ETFs (e.g. SOXX, XLK) | Evaluation, price features | **OPEN**: vendor to confirm |
 
 ## 6. Bronze Layer (`brz`)
 
-Rules: append-only, no parsing beyond extracting keys, duplicates allowed, partitioned by `ingest_date`.
+Rules: append-only, no parsing beyond extracting keys and paging metadata, duplicates allowed, partitioned by `ingest_date`.
 
-| Table | Grain | Columns |
+**Grain: one row per API response.** `payload` holds the whole response body as received (a page of posts, not one post). Posts are exploded, and joined to their authors where the source separates them, in Silver. This keeps ingestion trivial and every row traceable to the request that produced it. Only successful responses are stored. Request parameters never include cookies or credentials.
+
+Common columns on every `*_raw*` table: `payload`, `api_endpoint`, `request_params` (JSON, nullable), `ingest_ts`, `batch_id`, `ingest_date`. Full definitions are in `infra/local/contracts/brz/`.
+
+| Table | Grain | Extra columns |
 |---|---|---|
-| `raw_stocktwits` | One API record | `payload` (raw JSON string), `source_post_id`, `ingest_ts`, `batch_id`, `api_endpoint`, `ingest_date` |
-| `raw_reddit` | One API record | same as above + `subreddit` |
-| `raw_prices` | One raw bar | vendor fields as-is, `ingest_ts`, `batch_id`, `ingest_date` |
+| `stocktwits_raw` | One stream response (≤30 messages) | `request_symbol`, `result_count`, `newest_id`, `oldest_id`, `has_more` |
+| `reddit_raw` | One listing response | `subreddit`, `result_count` (contract not written yet) |
+| `xhs_raw_search` | One search page (~20 notes) | `search_keyword`, `sort_type`, `page_no`, `result_count`, `has_more` |
+| `xhs_raw_note` | One note-detail response | `source_post_id` |
+| `x_raw_search` | One X search page (≤25 posts) | `collector`, `request_query`, `result_count`, `newest_id`, `oldest_id`, `next_token` |
+| `prices_raw` | One vendor response | vendor-specific (contract after Q6) |
 | `_ingest_state` | One source × endpoint | `source`, `endpoint`, `last_cursor`, `last_run_ts`, `status` |
 
 `_ingest_state` lets ingestion resume from the last cursor after a restart.
+
+For X, `ingest_ts` is when the grokbot file reached us, not when grokbot called the API (it does not record that). This makes `ingest_ts` later than the true fetch time, which is the safe direction for P3.
 
 ## 7. Silver Layer (`slv`)
 
@@ -460,7 +476,8 @@ Get one thin slice working Bronze → Gold before polishing any single layer.
 | Label grain | post × entity × version | One post can hold opposite views on different tickers |
 | Three grains | Separate aggregate tables from one atomic fact | Kimball: one grain per fact table; consistent definitions |
 | OBT | Coexists with star schema, downstream only | Star = source of truth; OBT = convenience for agent and ML |
-| X data | Grok `x_search` as agent tool only | Not raw, not complete, not reproducible |
+| X data | Raw X API v2 search responses via grokbot, Phase 1 source (2026-10-12; replaces "Grok `x_search` as agent tool only") | grokbot now returns raw posts + authors, not Grok summaries |
+| Bronze naming and grain | `<source>_<purpose>` (e.g. `stocktwits_raw`, `xhs_raw_search`); one row per API response | Tables group by source; ingestion stores responses as-is and Silver does all exploding |
 | Environments | Single env now, CI isolated (`usse-ci` bucket + `ci_` schemas) | Sufficient for team size; clone dev later |
 | Local object storage | RustFS (not MinIO, not SeaweedFS) | MinIO images unavailable; SeaweedFS directory semantics break Delta |
 | Local catalog | Hive metastore on Postgres, schema pre-initialized | Shared across sessions like Glue; auto-create deadlocks |
@@ -481,3 +498,7 @@ Get one thin slice working Bronze → Gold before polishing any single layer.
 | Q7 | Reddit subreddits to include | Jaylen |
 | Q8 | AWS account + budget for an always-on ingestion host (needed for step 2) | Jerry |
 | Q9 | Bootstrap `label_version = user_tag_v0` from StockTwits user tags, so the Gold thin slice can run before LLM labels exist | Jerry + Linan |
+| Q10 | Backfill about 10 months of StockTwits history? Mutable fields (likes) in backfilled rows carry look-ahead | Jerry + Linan |
+| Q11 | Use Xiaohongshu in metrics? Non-commercial tool, personal-account cookie, ban risk, much A-share / Chinese-market content | Jerry + team |
+| Q12 | Xiaohongshu keyword list: generated from the universe (Chinese name + ticker + "股票") or hand-maintained | Jerry + Jaylen |
+| Q13 | Collect Xiaohongshu comments? | Jerry + Linan |

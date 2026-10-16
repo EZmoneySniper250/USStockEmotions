@@ -1,0 +1,48 @@
+# Plan §6. Bronze: append-only, one row per API response, payload stored as received.
+table: brz.xhs_raw_note
+grain: one API response (one note-detail call for one Xiaohongshu note)
+owner: jerry
+description: >
+  Raw Xiaohongshu note-detail responses. This is where body text (desc), the absolute
+  post time (time, ms), last_update_time, ip_location, tag_list and interact_info live.
+  Notes are refetched over time, so the same note appears in many rows. Never modified (P4).
+  Only successful responses are stored.
+
+primary_key: []
+partition_by: [ingest_date]
+write_mode: append
+upstreams: [XHS_ALL_IN_ONE POST /api/xhs/pc/notes/detail, brz.xhs_raw_search]
+
+columns:
+  - name: payload
+    type: string
+    nullable: false
+    description: raw XHS feed JSON for one note (data.items[0].note_card), unmodified
+  - name: api_endpoint
+    type: string
+    nullable: false
+    description: endpoint called, e.g. /api/sns/web/v1/feed
+  - name: source_post_id
+    type: string
+    nullable: false
+    description: XHS note id, extracted from payload
+  - name: request_params
+    type: string
+    nullable: true
+    description: JSON of params sent (xsec_source). Never include cookies or xsec_token
+  - name: ingest_ts
+    type: timestamp
+    nullable: false
+    description: UTC time this response was received (P2)
+  - name: batch_id
+    type: string
+    nullable: false
+    description: id of the ingestion run that fetched this response
+  - name: ingest_date
+    type: date
+    nullable: false
+    description: partition column, date of ingest_ts (UTC)
+
+dq_checks:
+  - not_null_source_post_id
+  - hourly_volume_drop

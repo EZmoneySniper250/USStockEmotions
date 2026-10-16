@@ -1,0 +1,64 @@
+# Plan §6. Bronze: append-only, one row per API response, payload stored as received.
+table: brz.stocktwits_raw
+grain: one API response (one call to one StockTwits stream endpoint, up to 30 messages)
+owner: jerry
+description: >
+  Raw StockTwits stream responses exactly as received. Never modified (P4). Only keys and
+  paging metadata are extracted into columns; messages are exploded in Silver. The same
+  message appears in the stream of every symbol it mentions, so duplicates across rows are
+  expected. Only successful (2xx) responses are stored.
+
+primary_key: []
+partition_by: [ingest_date]
+write_mode: append
+upstreams: [StockTwits public API]
+
+columns:
+  - name: payload
+    type: string
+    nullable: false
+    description: raw JSON response body, unmodified (messages[], cursor, symbol, response)
+  - name: api_endpoint
+    type: string
+    nullable: false
+    description: endpoint called, e.g. streams/symbol/NVDA.json
+  - name: request_symbol
+    type: string
+    nullable: true
+    description: symbol whose stream was requested; null for non-symbol streams (e.g. trending)
+  - name: request_params
+    type: string
+    nullable: true
+    description: JSON of query params sent (since / max). Never include cookies or credentials
+  - name: result_count
+    type: int
+    nullable: false
+    description: number of messages in payload
+  - name: newest_id
+    type: string
+    nullable: true
+    description: payload cursor.since (newest message id in this response)
+  - name: oldest_id
+    type: string
+    nullable: true
+    description: payload cursor.max (oldest message id in this response)
+  - name: has_more
+    type: boolean
+    nullable: true
+    description: payload cursor.more
+  - name: ingest_ts
+    type: timestamp
+    nullable: false
+    description: UTC time this response was received (P2)
+  - name: batch_id
+    type: string
+    nullable: false
+    description: id of the ingestion run that fetched this response
+  - name: ingest_date
+    type: date
+    nullable: false
+    description: partition column, date of ingest_ts (UTC)
+
+dq_checks:
+  - result_count_matches_payload
+  - hourly_volume_drop

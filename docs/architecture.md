@@ -10,6 +10,8 @@ flowchart LR
     subgraph SRC[Sources]
         ST[StockTwits API<br/>no history, start early]
         RD[Reddit API<br/>WSB, stocks]
+        XHS[XHS_ALL_IN_ONE<br/>local API, learning use only]
+        XB[grokbot<br/>X API v2 search]
         PX[Hourly price vendor<br/>OPEN Q6]
     end
 
@@ -21,10 +23,13 @@ flowchart LR
         FETCH <--> STATE
     end
 
-    subgraph BRZ[brz - Bronze, append-only, by ingest_date]
-        RST[(raw_stocktwits)]
-        RRD[(raw_reddit)]
-        RPX[(raw_prices)]
+    subgraph BRZ[brz - Bronze, one row per API response, append-only, by ingest_date]
+        RST[(stocktwits_raw)]
+        RRD[(reddit_raw)]
+        RXS[(xhs_raw_search)]
+        RXN[(xhs_raw_note)]
+        RX[(x_raw_search)]
+        RPX[(prices_raw)]
     end
 
     subgraph SLV[slv - Silver, 3NF, MERGE on PK]
@@ -54,13 +59,13 @@ flowchart LR
     subgraph USE[Consumers]
         AGENT[Agent<br/>read-only, Gold only]
         ML[Linan models<br/>obt_ticker_4h_train]
-        GROK[Grok x_search<br/>agent tool only]
     end
 
-    ST & RD & PX --> FETCH
-    SINK --> RST & RRD & RPX
+    ST & RD & XHS & PX --> FETCH
+    XB -->|response files| SINK
+    SINK --> RST & RRD & RXS & RXN & RX & RPX
 
-    RST & RRD -->|PySpark: parse, dedup,<br/>UTC, spam flags| POSTS
+    RST & RRD & RXS & RXN & RX -->|PySpark: parse, dedup,<br/>UTC, spam flags| POSTS
     POSTS -->|PySpark: cashtag + ETF map| MENT
     REF -.as-of join.-> MENT
     RPX -->|PySpark| PR
@@ -76,7 +81,6 @@ flowchart LR
     ALERT --> OBT
     OBT --> AGENT & ML
     AGENT --> RUN
-    GROK -.context.-> AGENT
 ```
 
 ## 2. Local runtime (docker compose)

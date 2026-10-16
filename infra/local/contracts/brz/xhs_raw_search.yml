@@ -1,0 +1,64 @@
+# Plan §6. Bronze: append-only, one row per API response, payload stored as received.
+table: brz.xhs_raw_search
+grain: one API response (one page of one Xiaohongshu note search, about 20 items)
+owner: jerry
+description: >
+  Raw Xiaohongshu (Rednote) note-search responses, collected through the local
+  XHS_ALL_IN_ONE backend (learning use only, non-commercial). Search items carry no body
+  text and no absolute timestamp, so every note is also fetched into brz.xhs_raw_note.
+  Never modified (P4). Only successful responses are stored.
+
+primary_key: []
+partition_by: [ingest_date]
+write_mode: append
+upstreams: [XHS_ALL_IN_ONE POST /api/xhs/pc/search/notes]
+
+columns:
+  - name: payload
+    type: string
+    nullable: false
+    description: raw XHS search JSON (data.items[] incl. note_card and xsec_token), unmodified
+  - name: api_endpoint
+    type: string
+    nullable: false
+    description: endpoint called, e.g. /api/sns/web/v2/search/notes
+  - name: search_keyword
+    type: string
+    nullable: false
+    description: keyword searched; space-joined keywords allowed (e.g. "美股 英伟达")
+  - name: sort_type
+    type: string
+    nullable: false
+    description: XHS sort, e.g. time_descending, general
+  - name: page_no
+    type: int
+    nullable: false
+    description: page number requested, starting at 1
+  - name: request_params
+    type: string
+    nullable: true
+    description: JSON of other params sent (note_type, search_id). Never include cookies
+  - name: result_count
+    type: int
+    nullable: false
+    description: number of note items in payload (rec_query / hot_query items excluded)
+  - name: has_more
+    type: boolean
+    nullable: true
+    description: payload data.has_more
+  - name: ingest_ts
+    type: timestamp
+    nullable: false
+    description: UTC time this response was received (P2)
+  - name: batch_id
+    type: string
+    nullable: false
+    description: id of the ingestion run that fetched this response
+  - name: ingest_date
+    type: date
+    nullable: false
+    description: partition column, date of ingest_ts (UTC)
+
+dq_checks:
+  - result_count_matches_payload
+  - hourly_volume_drop

@@ -48,7 +48,7 @@ Every new table, Bronze through Gold, goes through the same steps. Coding agents
 | 7 | **Integration run.** Against the local stack with `USSE_SCHEMA_PREFIX=ci_` | `pytest -m integration` | Green |
 | 8 | **Docs.** Lineage note for Bronze → Silver; dbt docs for Gold | `docs/` / dbt YAML | — |
 
-Contract template: `contracts/_template.yml`. Worked example: `contracts/brz/raw_stocktwits.yml`.
+Contract template: `contracts/_template.yml`. Worked examples: `contracts/brz/stocktwits_raw.yml`, `xhs_raw_search.yml`, `xhs_raw_note.yml`, `x_raw_search.yml`.
 
 ### 1.3 Testing pyramid
 
@@ -102,14 +102,15 @@ Delivered: compose stack, Spark image (PySpark 3.5.3 + Delta 3.2.1, matches EMR 
 
 ### M1 — Bronze ingestion, running 24/7 (Plan step 3) — **critical path**
 
-**Goal:** StockTwits + Reddit raw records landing in `brz` continuously, resumable after restarts.
+**Goal:** StockTwits, Reddit, Xiaohongshu and X raw API responses landing in `brz` continuously, resumable after restarts. Bronze grain is one row per API response (Plan §6).
 
 Deliverables:
-- `src/usse/ingestion/sink.py`: a `Sink` protocol with `write(records, source, endpoint, batch_id)`. First implementation `S3JsonSink` writes newline-delimited JSON to `<lake>/brz/raw_<source>/ingest_date=YYYY-MM-DD/<batch_id>.jsonl`. This is the interface that later lets us swap in Kafka (Plan §3.1).
+- `src/usse/ingestion/sink.py`: a `Sink` protocol with `write(records, source, endpoint, batch_id)`. First implementation `S3JsonSink` writes newline-delimited JSON (one API response per line) to `<lake>/landing/<table>/ingest_date=YYYY-MM-DD/<batch_id>.jsonl`, e.g. `landing/stocktwits_raw/...`. The landing area must stay outside the Delta table directories under `<lake>/brz/`: `VACUUM` deletes files a Delta log does not track. This is the interface that later lets us swap in Kafka (Plan §3.1).
 - `src/usse/tables.py`: `ensure_table(contract_path)` reads a contract YAML and runs `CREATE TABLE IF NOT EXISTS <prefix><layer>.<table> (...) USING DELTA [PARTITIONED BY ...]`. This keeps contracts as the single source of truth for Bronze/Silver schemas (Plan Rule 17). Unit test: contract → expected DDL string.
 - `src/usse/ingestion/state.py`: read/write `_ingest_state` (source × endpoint → `last_cursor`, `last_run_ts`, `status`).
-- `src/usse/ingestion/stocktwits.py`, `reddit.py`: fetchers that only fetch. Each record is wrapped with `source_post_id`, `ingest_ts` (UTC, our clock), `batch_id`, `api_endpoint`.
-- Bronze Delta tables `brz.raw_stocktwits` / `raw_reddit` created over the landing path. Alternative: a small Spark job that appends landed JSONL into Delta. Pick one in the M1 PR; the recommendation is a **Spark append job**, so Bronze is Delta while ingestion stays a lightweight Python process with no JVM.
+- `src/usse/ingestion/stocktwits.py`, `reddit.py`, `xhs.py`: fetchers that only fetch. Each response is wrapped with the contract's extracted columns (`api_endpoint`, `request_params`, paging metadata), `ingest_ts` (UTC, our clock) and `batch_id`. `xhs.py` calls the local XHS_ALL_IN_ONE backend: search pages → `xhs_raw_search`, then one detail call per new note → `xhs_raw_note`.
+- `src/usse/ingestion/x_grokbot.py`: loads grokbot's X API v2 response files into the landing area for `x_raw_search` (`collector = grokbot`; request columns null until grokbot records them).
+- Bronze Delta tables `brz.stocktwits_raw`, `reddit_raw`, `xhs_raw_search`, `xhs_raw_note`, `x_raw_search` created over the landing path. Alternative: a small Spark job that appends landed JSONL into Delta. Pick one in the M1 PR; the recommendation is a **Spark append job**, so Bronze is Delta while ingestion stays a lightweight Python process with no JVM.
 - Rate limiting + backoff per source; structured logs.
 
 **Always-on host.** A laptop cannot ingest 24/7. Recommendation: run ingestion on a small always-on VM (e.g. EC2 t4g.small or Lightsail) that writes **straight to a real S3 bucket** from day one. Only ingestion goes to AWS this early; Spark/dbt stay local and read that bucket. This is the only piece of M8 pulled forward. Needs a decision on the AWS account and budget.
@@ -159,7 +160,7 @@ Blocked by: **Q5** topic taxonomy.
 
 ### M6 — Prices, score, alerts (Plan steps 7, 9)
 
-Deliverables: price ingestion → `brz.raw_prices` → `slv.prices_1h`; `fct_price_4h`; `dim_score_model` + `fct_score` (components stored, `available_ts`, low-sample shrinkage); `dim_alert_rule` + `fct_alert`; `fct_alert_outcome` computed by a separate later job.
+Deliverables: price ingestion → `brz.prices_raw` → `slv.prices_1h`; `fct_price_4h`; `dim_score_model` + `fct_score` (components stored, `available_ts`, low-sample shrinkage); `dim_alert_rule` + `fct_alert`; `fct_alert_outcome` computed by a separate later job.
 
 Acceptance: point-in-time test (a feature at T never reads rows with `available_ts > T`); `fct_alert_outcome` is never referenced by alert logic (dbt lineage check).
 

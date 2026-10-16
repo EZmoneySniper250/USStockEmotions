@@ -10,7 +10,7 @@ description: >
 primary_key: [example_id]     # MERGE key (P6); [] for append-only Bronze
 partition_by: []              # e.g. [ingest_date] for Bronze
 write_mode: merge             # merge (slv/gld) | append (brz)
-upstreams: [brz.raw_example]
+upstreams: [brz.example_raw]
 
 columns:
   - name: example_id
